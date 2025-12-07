@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Sentence Reorder Task — Hotel Dialogue</title>
+<style>
+  :root{
+    --bg:#0f1724; --card:#0b1220; --muted:#94a3b8; --accent:#7dd3fc;
+    --correct:#16a34a; --wrong:#ef4444;
+  }
+  body{
+    font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial;
+    margin:0; background:linear-gradient(180deg,#071028 0%, #061726 100%);
+    color:#e6eef8; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:28px;
+  }
+  .app{
+    width:980px; max-width:98vw; background:linear-gradient(180deg,#071827 0%, #07283a 100%);
+    border-radius:14px; box-shadow:0 8px 30px rgba(2,6,23,.7); padding:22px;
+  }
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+  h1{font-size:18px;margin:0}
+  p.lead{margin:0;color:var(--muted);font-size:13px}
+  .controls{display:flex;gap:10px;flex-wrap:wrap}
+  button{
+    background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+    border:1px solid rgba(255,255,255,0.06); color:inherit; padding:8px 12px; border-radius:10px;
+    font-weight:600; cursor:pointer;
+  }
+  button.ghost{background:transparent;border:1px dashed rgba(255,255,255,0.04)}
+  button.primary{background:linear-gradient(180deg,#0369a1,#065f86);border:none}
+  .cols{display:grid;grid-template-columns:1fr 320px; gap:18px}
+  .panel{background:var(--card); padding:14px;border-radius:10px; border:1px solid rgba(255,255,255,0.03)}
+  .list{min-height:360px;padding:12px; display:flex; flex-direction:column; gap:10px}
+  .card{
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.03);
+    cursor:grab; user-select:none; display:flex; gap:10px; align-items:flex-start;
+  }
+  .card.dragging{opacity:0.6; transform:scale(.995); box-shadow:0 8px 30px rgba(2,6,23,.6)}
+  .label{font-weight:700; min-width:36px; color:var(--accent)}
+  .meta{color:var(--muted); font-size:12px}
+  .result-dot{width:10px;height:10px;border-radius:50%;margin-left:auto}
+  .result-correct{background:var(--correct)}
+  .result-wrong{background:var(--wrong)}
+  .help{color:var(--muted); font-size:13px;margin-top:10px}
+  footer{margin-top:12px;color:var(--muted); font-size:13px; text-align:right}
+  @media (max-width:860px){ .cols{grid-template-columns:1fr; } .panel.right{order:-1} }
+</style>
+</head>
+<body>
+  <div class="app" role="application" aria-labelledby="title">
+    <header>
+      <div>
+        <h1 id="title">Arrange the Conversation — Hotel Reception</h1>
+        <p class="lead">Drag the sentences into the logical order. Click <strong>Check</strong> to see results.</p>
+      </div>
+      <div class="controls" role="toolbar" aria-label="Controls">
+        <button id="shuffleBtn" title="Shuffle the sentences">Shuffle</button>
+        <button id="checkBtn" class="primary" title="Check answers">Check</button>
+        <button id="showBtn" title="Show correct order">Show answer</button>
+        <button id="resetBtn" class="ghost" title="Reset to scrambled start">Reset</button>
+        <button id="printBtn" title="Print worksheet">Print</button>
+      </div>
+    </header>
+
+    <main class="cols">
+      <section class="panel" aria-label="Draggable sentence area">
+        <div class="list" id="sentenceList" tabindex="0" aria-live="polite"></div>
+        <p class="help">Tip: Use mouse or touch to drag. On keyboard you can focus items and use the arrow keys while holding <kbd>Shift</kbd> to move (see accessibility note below).</p>
+      </section>
+
+      <aside class="panel right" style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <h3 style="margin:0 0 8px 0">Task info</h3>
+          <p class="meta" style="margin:0">Topic: Checking in at a hotel; Asking for tourist information</p>
+        </div>
+
+        <div>
+          <h4 style="margin:0 0 8px 0">Buttons</h4>
+          <ul style="margin:0 0 8px 18px;color:var(--muted)">
+            <li><strong>Shuffle</strong> randomises the sentences</li>
+            <li><strong>Check</strong> marks correct / incorrect and shows score</li>
+            <li><strong>Show answer</strong> reveals the correct conversation order</li>
+            <li><strong>Print</strong> prints a printable worksheet of current order</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 style="margin:0 0 8px 0">Accessibility</h4>
+          <p class="meta" style="margin:0">Items are keyboard focusable — focus a sentence and press <kbd>Space</kbd> to lift and arrow keys to move. Hold <kbd>Shift</kbd> + arrow to move more quickly.</p>
+        </div>
+      </aside>
+    </main>
+
+    <footer>
+      <span id="scoreArea"></span>
+    </footer>
+  </div>
+
+<script>
+/*
+  Sentence reorder app
+  Uses HTML5 Drag & Drop and keyboard moving for accessibility
+  Sentences are taken from the user's "hotel reception" task.
+*/
+
+// --- Correct conversation order (array of objects: speaker + text)
+const correctOrder = [
+  {id:1, speaker:"R", text:"Hello. How can I help you?"},
+  {id:2, speaker:"G", text:"I’ve got a reservation for three nights."},
+  {id:3, speaker:"R", text:"Three nights? Your name, please?"},
+  {id:4, speaker:"G", text:"Henderson."},
+  {id:5, speaker:"R", text:"Thank you. Yes, that’s right … Henderson. A single room for three nights."},
+  {id:6, speaker:"R", text:"So here’s your key. Enjoy your stay."},
+  {id:7, speaker:"G", text:"Great. Oh, what time is breakfast?"},
+  {id:8, speaker:"R", text:"It’s from seven until ten in the dining room."},
+  {id:9, speaker:"G", text:"And what time is check-out?"},
+  {id:10, speaker:"R", text:"It’s at 12 o’clock on the day you leave."},
+  {id:11, speaker:"G", text:"Oh, and one last thing. Is there a gym I can use?"},
+  {id:12, speaker:"R", text:"Yes, there is. It’s on the top floor next to the spa."},
+  {id:13, speaker:"G", text:"How much does it cost to use the gym?"},
+  {id:14, speaker:"R", text:"It’s free of charge for our guests."},
+  {id:15, speaker:"G", text:"OK, that’s great."},
+  {id:16, speaker:"G", text:"Thanks."}
+];
+
+// We'll keep an initial scrambled version so Reset returns to the same scramble.
+let initialScramble = [];
+
+// Current working order (array of objects)
+let current = [];
+
+// DOM refs
+const listEl = document.getElementById('sentenceList');
+const shuffleBtn = document.getElementById('shuffleBtn');
+const checkBtn = document.getElementById('checkBtn');
+const showBtn = document.getElementById('showBtn');
+const resetBtn = document.getElementById('resetBtn');
+const printBtn = document.getElementById('printBtn');
+const scoreArea = document.getElementById('scoreArea');
+
+function shuffle(array) {
+  // Fisher-Yates
+  const a = array.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function renderList(items) {
+  listEl.innerHTML = '';
+  items.forEach((item, idx) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.setAttribute('draggable', 'true');
+    card.setAttribute('role', 'option');
+    card.setAttribute('aria-grabbed','false');
+    card.dataset.id = item.id;
+    card.dataset.index = idx;
+
+    // accessible keyboard handling
+    card.tabIndex = 0;
+
+    card.innerHTML = `
+      <div class="label">${item.speaker}</div>
+      <div style="flex:1">
+        <div>${escapeHtml(item.text)}</div>
+        <div class="meta">Sentence ${idx + 1}</div>
+      </div>
+      <div class="result-dot" aria-hidden="true"></div>
+    `;
+
+    // drag events
+    card.addEventListener('dragstart', onDragStart);
+    card.addEventListener('dragend', onDragEnd);
+
+    // drop target
+    card.addEventListener('dragover', onDragOver);
+    card.addEventListener('drop', onDrop);
+
+    // keyboard moving for accessibility
+    card.addEventListener('keydown', onCardKeydown);
+
+    listEl.appendChild(card);
+  });
+}
+
+function escapeHtml(str){
+  return str.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+}
+
+let dragSrcEl = null;
+
+function onDragStart(e){
+  dragSrcEl = this;
+  this.classList.add('dragging');
+  this.setAttribute('aria-grabbed','true');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', this.dataset.id);
+}
+
+function onDragEnd(){
+  this.classList.remove('dragging');
+  this.setAttribute('aria-grabbed','false');
+}
+
+function onDragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const target = this;
+  const dragging = document.querySelector('.dragging');
+  if (!dragging || target === dragging) return;
+  // Insert before or after depending on mouse position
+  const rect = target.getBoundingClientRect();
+  const next = (e.clientY - rect.top) / rect.height > 0.5;
+  if (next) {
+    target.parentNode.insertBefore(dragging, target.nextSibling);
+  } else {
+    target.parentNode.insertBefore(dragging, target);
+  }
+}
+
+function onDrop(e){
+  e.stopPropagation();
+  rebuildCurrentFromDOM();
+}
+
+function rebuildCurrentFromDOM(){
+  const nodes = Array.from(listEl.children);
+  current = nodes.map((node, i) => {
+    const id = Number(node.dataset.id);
+    const found = correctOrder.find(s => s.id === id);
+    node.dataset.index = i;
+    // update the .meta text for sentence number
+    const meta = node.querySelector('.meta');
+    if (meta) meta.textContent = `Sentence ${i+1}`;
+    // clear previous result dot
+    node.querySelector('.result-dot').className = 'result-dot';
+    node.style.outline = '';
+    return found ? {...found} : {id, speaker:'', text:node.textContent.trim()};
+  });
+  scoreArea.textContent = '';
+}
+
+function onCardKeydown(e){
+  const card = e.currentTarget;
+  const id = card.dataset.id;
+  if (e.key === ' ' || e.key === 'Spacebar') {
+    // prevent page scrolling
+    e.preventDefault();
+    // toggle a lifting state (visualized by .dragging)
+    const isLifted = card.classList.toggle('dragging');
+    card.setAttribute('aria-grabbed', isLifted ? 'true' : 'false');
+    return;
+  }
+  // Move with arrow keys when focused
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    const nodes = Array.from(listEl.children);
+    const idx = nodes.indexOf(card);
+    let newIdx = idx + (e.key === 'ArrowUp' ? -1 : 1);
+    if (e.shiftKey) newIdx += (e.key === 'ArrowUp' ? -1 : 1); // faster with shift
+    newIdx = Math.max(0, Math.min(nodes.length - 1, newIdx));
+    if (newIdx === idx) return;
+    const ref = nodes[newIdx];
+    if (newIdx < idx) {
+      listEl.insertBefore(card, ref);
+    } else {
+      listEl.insertBefore(card, ref.nextSibling);
+    }
+    rebuildCurrentFromDOM();
+    card.focus();
+  }
+}
+
+function checkAnswers(){
+  rebuildCurrentFromDOM();
+  let correctCount = 0;
+  const nodes = Array.from(listEl.children);
+  nodes.forEach((node, i) => {
+    const id = Number(node.dataset.id);
+    const correctId = correctOrder[i].id;
+    const dot = node.querySelector('.result-dot');
+    if (id === correctId) {
+      correctCount++;
+      dot.classList.add('result-correct');
+      node.style.outline = '2px solid rgba(22,163,74,0.16)';
+    } else {
+      dot.classList.add('result-wrong');
+      node.style.outline = '2px solid rgba(239,68,68,0.12)';
+    }
+  });
+  scoreArea.textContent = `Score: ${correctCount} / ${correctOrder.length}`;
+}
+
+function showAnswer(){
+  current = correctOrder.map(x => ({...x}));
+  renderList(current);
+  // show green dots
+  Array.from(listEl.children).forEach((node) => {
+    node.querySelector('.result-dot').classList.add('result-correct');
+  });
+  scoreArea.textContent = `Answer shown — ${correctOrder.length} / ${correctOrder.length}`;
+}
+
+function resetToInitial(){
+  current = initialScramble.map(x => ({...x}));
+  renderList(current);
+  scoreArea.textContent = '';
+}
+
+function init(){
+  // Create a scrambled initial version from correct order
+  initialScramble = shuffle(correctOrder);
+  // But ensure it's not accidentally the correct order
+  if (arraysEqual(initialScramble.map(s=>s.id), correctOrder.map(s=>s.id))) {
+    initialScramble = shuffle(correctOrder);
+  }
+  current = initialScramble.map(x=>({...x}));
+  renderList(current);
+  scoreArea.textContent = '';
+}
+
+// small helper
+function arraysEqual(a,b){
+  if (a.length !== b.length) return false;
+  for (let i=0;i<a.length;i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+// Event wiring
+shuffleBtn.addEventListener('click', () => {
+  current = shuffle(current);
+  renderList(current);
+  scoreArea.textContent = '';
+});
+checkBtn.addEventListener('click', checkAnswers);
+showBtn.addEventListener('click', showAnswer);
+resetBtn.addEventListener('click', resetToInitial);
+printBtn.addEventListener('click', () => {
+  // open a simple print view with current order
+  rebuildCurrentFromDOM();
+  const lines = current.map((s, i) => `${i+1}. (${s.speaker}) ${s.text}`);
+  const w = window.open('', '_blank', 'noopener');
+  w.document.write(`
+    <title>Print — Sentence Reorder</title>
+    <pre style="font-family:Inter,Arial;margin:20px">${lines.join('\n\n')}</pre>
+    <script>setTimeout(()=>{window.print();},200);</script>
+  `);
+});
+
+// initialize app
+init();
+</script>
+</body>
+</html>
